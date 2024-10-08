@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>PDF 병합기</title>
+    <style>
+        /* CSS 스타일링 */
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .dropzone {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            color: #aaa;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .dropzone.dragover {
+            background-color: #e0e0e0;
+            color: #333;
+        }
+        #fileList {
+            list-style: none;
+            padding: 0;
+            margin-top: 20px;
+        }
+        #fileList li {
+            padding: 10px;
+            background: #f9f9f9;
+            margin-bottom: 5px;
+            border: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: move;
+        }
+        .buttons {
+            margin-top: 20px;
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            background: #28a745;
+            color: #fff;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #218838;
+        }
+        .delete-btn {
+            background: #dc3545;
+            margin-left: 10px;
+        }
+        .delete-btn:hover {
+            background: #c82333;
+        }
+        .sort-btn {
+            background: #007bff;
+        }
+        .sort-btn:hover {
+            background: #0069d9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>PDF 병합기</h2>
+        <div id="dropzone" class="dropzone">
+            PDF 파일을 여기에 드래그 앤 드롭하거나 클릭하여 업로드
+        </div>
+        <ul id="fileList"></ul>
+        <div class="buttons">
+            <button id="mergeBtn">PDF 병합하기</button>
+            <button id="sortBtn" class="sort-btn">이름 순 정렬 (A-Z)</button>
+            <button id="downloadBtn" style="display: none;">병합된 PDF 다운로드</button>
+        </div>
+    </div>
+
+    <!-- pdf-lib 라이브러리 추가 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <script>
+        // JavaScript 코드
+
+        const dropzone = document.getElementById('dropzone');
+        const fileList = document.getElementById('fileList');
+        const mergeBtn = document.getElementById('mergeBtn');
+        const sortBtn = document.getElementById('sortBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        let files = [];
+        let mergedPdfBytes = null;
+
+        // 드래그 오버 시 스타일 변경
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.classList.remove('dragover');
+        });
+
+        // 파일 드롭 시 처리
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            const droppedFiles = Array.from(e.dataTransfer.files).filter(file => file.type === 'application/pdf');
+            if (droppedFiles.length > 0) {
+                files.push(...droppedFiles);
+                renderFileList();
+            }
+        });
+
+        // 클릭하여 파일 선택
+        dropzone.addEventListener('click', () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'application/pdf';
+            input.multiple = true;
+            input.onchange = (e) => {
+                const selectedFiles = Array.from(e.target.files).filter(file => file.type === 'application/pdf');
+                if (selectedFiles.length > 0) {
+                    files.push(...selectedFiles);
+                    renderFileList();
+                }
+            };
+            input.click();
+        });
+
+        // 파일 목록 렌더링
+        function renderFileList() {
+            fileList.innerHTML = '';
+            files.forEach((file, index) => {
+                const li = document.createElement('li');
+                li.draggable = true;
+                li.dataset.index = index;
+
+                const span = document.createElement('span');
+                span.textContent = file.name;
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.textContent = '삭제';
+                deleteBtn.classList.add('delete-btn');
+                deleteBtn.onclick = () => {
+                    files.splice(index, 1);
+                    renderFileList();
+                };
+
+                li.appendChild(span);
+                li.appendChild(deleteBtn);
+                fileList.appendChild(li);
+            });
+
+            addDragAndDropEvents();
+        }
+
+        // 드래그 앤 드롭을 통한 순서 변경
+        function addDragAndDropEvents() {
+            const items = document.querySelectorAll('#fileList li');
+            let dragStartIndex;
+
+            items.forEach(item => {
+                item.addEventListener('dragstart', () => {
+                    dragStartIndex = +item.dataset.index;
+                });
+
+                item.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                });
+
+                item.addEventListener('drop', (e) => {
+                    const dragEndIndex = +item.dataset.index;
+                    swapFiles(dragStartIndex, dragEndIndex);
+                    renderFileList();
+                });
+            });
+        }
+
+        // 파일 순서 변경 함수
+        function swapFiles(fromIndex, toIndex) {
+            const temp = files[fromIndex];
+            files[fromIndex] = files[toIndex];
+            files[toIndex] = temp;
+        }
+
+        // PDF 병합 함수
+        mergeBtn.addEventListener('click', async () => {
+            if (files.length < 2) {
+                alert('병합할 PDF 파일을 최소 2개 이상 업로드해주세요.');
+                return;
+            }
+
+            mergeBtn.disabled = true;
+            mergeBtn.textContent = '병합 중...';
+
+            try {
+                const mergedPdf = await PDFLib.PDFDocument.create();
+
+                for (const file of files) {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const pdf = await PDFLib.PDFDocument.load(arrayBuffer);
+                    const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+                    copiedPages.forEach(page => mergedPdf.addPage(page));
+                }
+
+                mergedPdfBytes = await mergedPdf.save();
+                downloadBtn.style.display = 'inline-block';
+                alert('PDF가 성공적으로 병합되었습니다!');
+            } catch (error) {
+                console.error(error);
+                alert('PDF 병합 중 오류가 발생했습니다.');
+            } finally {
+                mergeBtn.disabled = false;
+                mergeBtn.textContent = 'PDF 병합하기';
+            }
+        });
+
+        // 병합된 PDF 다운로드
+        downloadBtn.addEventListener('click', () => {
+            if (!mergedPdfBytes) return;
+            const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'merged.pdf';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+
+        // 파일 목록을 이름 순(A-Z)으로 정렬하는 함수
+        function sortFilesAlphabetically() {
+            files.sort((a, b) => a.name.localeCompare(b.name));
+            renderFileList();
+        }
+
+        // 정렬 버튼 클릭 시 정렬 함수 호출
+        sortBtn.addEventListener('click', () => {
+            sortFilesAlphabetically();
+        });
+    </script>
+</body>
+</html>
